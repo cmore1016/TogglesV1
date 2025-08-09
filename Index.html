@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Toggle Battle</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; max-width: 400px; margin: auto; background: #f0f0f0; }
+  h1 { text-align: center; }
+  button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
+  #battle-log { 
+    background: white; 
+    padding: 10px; 
+    height: 150px; 
+    overflow-y: auto; 
+    border: 1px solid #ccc; 
+    margin-top: 20px; 
+    white-space: pre-line; 
+  }
+  #stats { margin-top: 20px; }
+  #info-overlay {
+    display: none;
+    position: fixed;
+    top: 10%;
+    left: 10%;
+    width: 80%;
+    max-width: 350px;
+    background: white;
+    border: 2px solid #333;
+    padding: 15px;
+    box-shadow: 0 0 15px rgba(0,0,0,0.4);
+    z-index: 1000;
+  }
+  #info-overlay h2 { margin-top: 0; }
+  #info-overlay ul { padding-left: 20px; max-height: 200px; overflow-y: auto; }
+  #info-overlay button {
+    margin-top: 15px;
+    background: #444;
+    color: white;
+    border: none;
+    cursor: pointer;
+  }
+  /* Layout for move buttons and info button side-by-side */
+  #move-info-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  #move-buttons {
+    flex-grow: 1;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #info-button-container {
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Toggle Battle</h1>
+
+<div id="start-screen">
+  <p>Choose your Toggle:</p>
+  <div>
+    <button onclick="startGame('Poco')">Poco</button>
+    <button onclick="showDetails('Poco')">View Poco Details</button>
+  </div>
+  <div>
+    <button onclick="startGame('Bumble')">Bumble</button>
+    <button onclick="showDetails('Bumble')">View Bumble Details</button>
+  </div>
+</div>
+
+<div id="details-screen" style="display:none;">
+  <h2 id="details-name"></h2>
+  <p><strong>Animal:</strong> <span id="details-animal"></span></p>
+  <p><strong>Stats:</strong></p>
+  <ul>
+    <li>HP: <span id="details-hp"></span></li>
+    <li>Attack: <span id="details-attack"></span></li>
+    <li>Defense: <span id="details-defense"></span></li>
+  </ul>
+  <p><strong>Moves:</strong></p>
+  <ul id="details-moves"></ul>
+  <button onclick="backToStart()">Back</button>
+</div>
+
+<div id="battle-screen" style="display:none;">
+  <div id="stats">
+    <p><strong>Your Toggle:</strong> <span id="player-name"></span> | HP: <span id="player-hp"></span></p>
+    <p><strong>Enemy Toggle:</strong> <span id="enemy-name"></span> | HP: <span id="enemy-hp"></span></p>
+  </div>
+
+  <div id="move-info-container">
+    <div id="move-buttons"></div>
+    <div id="info-button-container">
+      <button onclick="showBattleInfo()">Info</button>
+    </div>
+  </div>
+
+  <div id="battle-log"></div>
+</div>
+
+<div id="info-overlay">
+  <h2>Toggle Info</h2>
+  <p><strong>Name:</strong> <span id="info-name"></span></p>
+  <p><strong>Animal:</strong> <span id="info-animal"></span></p>
+  <p><strong>Stats:</strong></p>
+  <ul>
+    <li>HP: <span id="info-hp"></span></li>
+    <li>Attack: <span id="info-attack"></span></li>
+    <li>Defense: <span id="info-defense"></span></li>
+  </ul>
+  <p><strong>Moves:</strong></p>
+  <ul id="info-moves"></ul>
+  <button onclick="hideBattleInfo()">Close</button>
+</div>
+
+<script>
+  // Toggle data with animals and move descriptions
+  const toggles = {
+    Poco: {
+      name: "Poco",
+      animal: "Dog",
+      hp: 75,
+      attack: 65,
+      defense: 55,
+      moves: [
+        { name: "Bite", damage: 20, effect: "Deals 20 damage." },
+        { name: "Bark", damage: 0, effect: "Raises Poco’s attack by 10 for the next turn." },
+        { name: "Dog Love", damage: 0, effect: "Heals Poco for 20 HP." },
+        { name: "Hunt", damage: 40, effect: "Deals 40 damage but has a chance to miss." }
+      ],
+      attackBuff: 0,
+    },
+    Bumble: {
+      name: "Bumble",
+      animal: "Bee",
+      hp: 60,
+      attack: 45,
+      defense: 40,
+      moves: [
+        { name: "Zap", damage: 20, effect: "Deals 20 damage with a chance to paralyze the opponent." },
+        { name: "Boost", damage: 0, effect: "Raises Bumble’s next special attack by 10." },
+        { name: "Wing Shield", damage: 0, effect: "Reduces damage taken by 10 for a few turns." },
+        { name: "Lightning Dash", damage: 35, effect: "Deals 35 damage but has a higher chance to miss." }
+      ],
+      attackBuff: 0,
+      defenseBuff: 0,
+    }
+  };
+
+  let playerToggle, enemyToggle;
+  let playerTurn = true;
+
+  const battleLog = document.getElementById("battle-log");
+  const moveButtons = document.getElementById("move-buttons");
+  const infoOverlay = document.getElementById("info-overlay");
+
+  // Message queue for smooth typing
+  let typingTimeout;
+  const messageQueue = [];
+  let isTyping = false;
+
+  function typeMessagesSequentially(messages) {
+    if (isTyping) {
+      messageQueue.push(...messages);
+      return;
+    }
+    isTyping = true;
+
+    function typeMessage(message, callback) {
+      const p = document.createElement("p");
+      battleLog.appendChild(p);
+      let i = 0;
+
+      function type() {
+        if (i < message.length) {
+          p.textContent += message.charAt(i);
+          i++;
+          typingTimeout = setTimeout(type, 30);
+        } else {
+          battleLog.scrollTop = battleLog.scrollHeight;
+          callback();
+        }
+      }
+      type();
+    }
+
+    function runQueue(msgs) {
+      if (msgs.length === 0) {
+        if (messageQueue.length > 0) {
+          const nextMessages = messageQueue.splice(0, messageQueue.length);
+          runQueue(nextMessages);
+        } else {
+          isTyping = false;
+        }
+        return;
+      }
+      const next = msgs.shift();
+      typeMessage(next, () => runQueue(msgs));
+    }
+
+    runQueue(messages);
+  }
+
+  function startGame(choice) {
+    playerToggle = JSON.parse(JSON.stringify(toggles[choice]));
+    enemyToggle = JSON.parse(JSON.stringify(toggles[choice === "Poco" ? "Bumble" : "Poco"]));
+    playerToggle.currentHp = playerToggle.hp;
+    enemyToggle.currentHp = enemyToggle.hp;
+    playerToggle.attackBuff = 0;
+    enemyToggle.attackBuff = 0;
+    playerToggle.defenseBuff = 0;
+    enemyToggle.defenseBuff = 0;
+
+    document.getElementById("start-screen").style.display = "none";
+    document.getElementById("details-screen").style.display = "none";
+    document.getElementById("battle-screen").style.display = "block";
+
+    document.getElementById("player-name").textContent = playerToggle.name;
+    document.getElementById("enemy-name").textContent = enemyToggle.name;
+
+    updateHp();
+
+    flipCoin();
+  }
+
+  function flipCoin() {
+    const coin = Math.random() < 0.5 ? "player" : "enemy";
+    playerTurn = (coin === "player");
+    typeMessagesSequentially([`Coin flip: ${playerTurn ? "You go first!" : "Enemy goes first!"}`]);
+
+    if (!playerTurn) {
+      setTimeout(enemyMove, 1500);
+    } else {
+      showMoves();
+    }
+  }
+
+  function showMoves() {
+    moveButtons.innerHTML = "";
+    playerToggle.moves.forEach((move, index) => {
+      const btn = document.createElement("button");
+      btn.textContent = move.name;
+      btn.onclick = () => playerAttack(index);
+      moveButtons.appendChild(btn);
+    });
+  }
+
+  function playerAttack(moveIndex) {
+    moveButtons.innerHTML = "";
+    applyMove(playerToggle, enemyToggle, playerToggle.moves[moveIndex], () => {
+      if (enemyToggle.currentHp <= 0) {
+        endBattle("win");
+        return;
+      }
+      playerTurn = false;
+      setTimeout(enemyMove, 1500);
+    });
+  }
+
+  function enemyMove() {
+    const moves = enemyToggle.moves;
+    const move = moves[Math.floor(Math.random() * moves.length)];
+    applyMove(enemyToggle, playerToggle, move, () => {
+      if (playerToggle.currentHp <= 0) {
+        endBattle("lose");
+        return;
+      }
+      playerTurn = true;
+      showMoves();
+    });
+  }
+
+  // applyMove now takes a callback to run after messages and updates finish
+  function applyMove(attacker, defender, move, callback) {
+    typeMessagesSequentially([`${attacker.name} used ${move.name}!`]);
+
+    switch (move.name) {
+      case "Bark":
+      case "Boost":
+        // Raise attack buff by 10
+        attacker.attackBuff += 10;
+        setTimeout(() => {
+          typeMessagesSequentially([`${attacker.name}'s attack rose by 10!`]);
+          updateHp();
+          callback();
+        }, 1500);
+        break;
+      case "Dog Love":
+        attacker.currentHp += 20;
+        if (attacker.currentHp > attacker.hp) attacker.currentHp = attacker.hp;
+        setTimeout(() => {
+          typeMessagesSequentially([`${attacker.name} healed 20 HP!`]);
+          updateHp();
+          callback();
+        }, 1500);
+        break;
+      case "Wing Shield":
+        attacker.defenseBuff = (attacker.defenseBuff || 0) + 10;
+        setTimeout(() => {
+          typeMessagesSequentially([`${attacker.name} raised its defense by 10!`]);
+          updateHp();
+          callback();
+        }, 1500);
+        break;
+      case "Hunt":
+      case "Lightning Dash":
+        let missChance = (move.name === "Hunt") ? 0.3 : 0.5;
+        if (Math.random() < missChance) {
+          setTimeout(() => {
+            typeMessagesSequentially([`${attacker.name}'s attack missed!`]);
+            updateHp();
+            callback();
+          }, 1500);
+        } else {
+          setTimeout(() => {
+            applyDamage(attacker, defender, move.damage, callback);
+            updateHp();
+          }, 1500);
+        }
+        break;
+      case "Bite":
+      case "Zap":
+        setTimeout(() => {
+          applyDamage(attacker, defender, move.damage, callback);
+          updateHp();
+        }, 1500);
+        break;
+      default:
+        setTimeout(() => {
+          applyDamage(attacker, defender, move.damage, callback);
+          updateHp();
+        }, 1500);
+    }
+  }
+
+  function applyDamage(attacker, defender, baseDamage, callback) {
+    const effectiveDefense = defender.defense + (defender.defenseBuff || 0);
+    let damage = baseDamage + attacker.attackBuff - effectiveDefense * 0.5;
+    if (damage < 1) damage = 1;
+
+    defender.currentHp -= Math.floor(damage);
+    if (defender.currentHp < 0) defender.currentHp = 0;
+
+    // Show damage message, then call callback after
+    typeMessagesSequentially([`${defender.name} took ${Math.floor(damage)} damage!`]);
+    // Wait for message to finish before callback:
+    setTimeout(callback, damage.length * 30 + 600);
+  }
+
+  function updateHp() {
+    document.getElementById("player-hp").textContent = playerToggle.currentHp;
+    document.getElementById("enemy-hp").textContent = enemyToggle.currentHp;
+  }
+
+  // Info button functions
+  function showBattleInfo() {
+    document.getElementById("info-name").textContent = playerToggle.name;
+    document.getElementById("info-animal").textContent = playerToggle.animal;
+    document.getElementById("info-hp").textContent = playerToggle.hp;
+    document.getElementById("info-attack").textContent = playerToggle.attack;
+    document.getElementById("info-defense").textContent = playerToggle.defense;
+
+    const movesList = document.getElementById("info-moves");
+    movesList.innerHTML = "";
+    playerToggle.moves.forEach(move => {
+      const li = document.createElement("li");
+      li.textContent = `${move.name}: ${move.effect}`;
+      movesList.appendChild(li);
+    });
+
+    infoOverlay.style.display = "block";
+  }
+
+  function hideBattleInfo() {
+    infoOverlay.style.display = "none";
+  }
+
+  // Details screen functions
+  function showDetails(toggleName) {
+    const toggle = toggles[toggleName];
+    document.getElementById("start-screen").style.display = "none";
+    document.getElementById("details-screen").style.display = "block";
+    document.getElementById("details-name").textContent = toggle.name;
+    document.getElementById("details-animal").textContent = toggle.animal;
+    document.getElementById("details-hp").textContent = toggle.hp;
+    document.getElementById("details-attack").textContent = toggle.attack;
+    document.getElementById("details-defense").textContent = toggle.defense;
+
+    const movesList = document.getElementById("details-moves");
+    movesList.innerHTML = "";
+
+    toggle.moves.forEach(move => {
+      const li = document.createElement("li");
+      li.textContent = `${move.name}: ${move.effect}`;
+      movesList.appendChild(li);
+    });
+  }
+
+  function backToStart() {
+    document.getElementById("details-screen").style.display = "none";
+    document.getElementById("start-screen").style.display = "block";
+  }
+
+  function endBattle(result) {
+    typeMessagesSequentially([result === "win" ? "You won the battle!" : "You lost the battle!"]);
+    moveButtons.innerHTML = '<button onclick="restart()">Play Again</button>';
+  }
+
+  function restart() {
+    location.reload();
+  }
+</script>
+
+</body>
+</html>
